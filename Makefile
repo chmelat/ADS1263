@@ -2,17 +2,17 @@
 # Makefile 
 #
 
-PROGRAM = ads1262
-VERS = 1.0
+PROGRAM = ads1263
+VERS = 2.0
 
 # Zdrojové soubory pro program
-SRC = ads1262_example.c ads1262_lib.c
+SRC = ads1263_example.c ads1263_lib.c
 OBJ = $(SRC:.c=.o)
-HEAD = ads1262_lib.h
+HEAD = ads1263_lib.h
 
 # Zdrojové soubory pro knihovnu
-LIB_NAME = ads1262
-LIB_SRC = ads1262_lib.c
+LIB_NAME = ads1263
+LIB_SRC = ads1263_lib.c
 LIB_OBJ = $(LIB_SRC:.c=.o)
 STATIC_LIB = lib$(LIB_NAME).a
 
@@ -61,15 +61,15 @@ uninstall:
 	rm -f $(HOME)/include/$(HEAD)
 
 clean:
-	rm -f *.o $(PROGRAM) $(STATIC_LIB) test_ads1262
+	rm -f *.o $(PROGRAM) $(STATIC_LIB) test_ads1263
 
 dist:
-	tar czf $(PROGRAM)-$(VERS).tgz $(SRC) $(HEAD) test_ads1262.c Makefile README.md LICENSE
+	tar czf $(PROGRAM)-$(VERS).tgz $(SRC) $(HEAD) test_ads1263.c Makefile README.md LICENSE
 
-# Hardware-free test (emulated ADS1256)
-test: test_ads1262.c $(LIB_SRC) $(HEAD)
-	$(CC) $(CFLAGS) test_ads1262.c $(LIB_SRC) -lm -o test_ads1262
-	./test_ads1262
+# Hardware-free test (emulated ADS1263)
+test: test_ads1263.c $(LIB_SRC) $(HEAD)
+	$(CC) $(CFLAGS) test_ads1263.c $(LIB_SRC) -lm -o test_ads1263
+	./test_ads1263
 
 $(PROGRAM): $(OBJ) Makefile
 	$(CC) $(OBJ) -o $(PROGRAM)
