@@ -1,7 +1,7 @@
 /**
  * @file ads1263_lib.c
  * @brief Library for ADS1263 32-bit ADC + 24-bit auxiliary ADC2 on Linux spidev
- * @version 2.1
+ * @version 2.2
  * @date 2026-10-08
  *
  * Datasheet: TI SBAS661C. Timing tables assume fCLK = 7.3728 MHz (internal oscillator).

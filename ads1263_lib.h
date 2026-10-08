@@ -1,7 +1,7 @@
 /**
  * @file ads1263_lib.h
  * @brief Library for ADS1263 32-bit ADC + 24-bit auxiliary ADC2 on Linux spidev (Orange Pi, Raspberry Pi)
- * @version 2.1
+ * @version 2.2
  * @date 2026-10-08
  *
  * - Device handle (ads1263_t), any number of devices, no global state

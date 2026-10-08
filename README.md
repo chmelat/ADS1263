@@ -84,6 +84,8 @@ No libraries: only the Linux `spidev` driver and the GPIO character device (uAPI
 make                # Example program ./ads1263
 make lib            # Static library libads1263.a
 make test           # Hardware-free test with an emulated ADS1263
+make so             # Shared library libads1263.so for Python (ads1263.py)
+make test-py        # Hardware-free check of the Python binding
 make install        # libads1263.a to ~/lib, ads1263_lib.h to ~/include
 ```
 
@@ -190,6 +192,24 @@ printf("%.2f C\n", ads1263_adc2_to_celsius(&adc, raw));
 
 Until `ads1263_adc2_start()`, ADC2 is stopped with its reset settings (10 SPS, gain 1, internal reference, AIN0/AIN1). ADC2 has no DRDY pin: the library always polls its new-data bit through RDATA2 and waits out calibration by the datasheet time (table 9-29: 28 ms at 800 SPS, 1.7 s at 10 SPS). `ads1263_adc2_read_stream()` therefore doesn't detect skipped conversions. Codes are `raw * v_ref / gain / 2^23`.
 
+### Python
+
+`ads1263.py` wraps `libads1263.so` (`make so`, kept next to it) with ctypes, no other packages needed. Functions lose the `ads1263_` prefix, constants the `ADS1263_` one, and errors raise `ads1263.ADS1263Error` (`.code`; a failed `read_stream()` keeps its valid samples in `.samples`). Keyword arguments of the constructor are the `ads1263_config_t` fields, `adc.dev` is the C handle (`status`, `cfg`, ...).
+
+```python
+import ads1263 as A
+
+with A.ADS1263("/dev/spidev4.1", drdy_chip="/dev/gpiochip1", drdy_line=3,
+               pos=A.AIN0, neg=A.AINCOM, bypass=True) as adc:
+    print(adc.to_volts(adc.read()), "V")
+    raw = adc.read_stream(100)                       # List of 100 codes
+    print(adc.scan([(A.AIN1, A.AINCOM), (A.TEMP, A.TEMP)]))
+    adc.adc2_start(pos=A.TEMP, neg=A.TEMP)
+    print(adc.adc2_to_celsius(adc.adc2_read()), "C")
+```
+
+The ctypes structures mirror `ads1263_lib.h`; after changing a structure there, update `ads1263.py` and run `make test-py`.
+
 ## API
 
 | Function | Description |
@@ -285,6 +305,10 @@ Errors outside the chip (dividers, shunts, sensor offset) are not covered; calib
 - **Wrong readings**: check `v_ref` and `refmux` against your reference and the gain against the signal range. After power-on the internal reference needs time to settle (datasheet figure 7-33); call `ads1263_calibrate(&adc, ADS1263_CMD_SFOCAL1)` again once it has.
 
 ## Version History
+
+### Version 2.2 (2026-10-08)
+- Python binding `ads1263.py` (ctypes, no other packages) over the shared library from `make so`
+- `make test-py`: hardware-free check that the ctypes structures match `ads1263_lib.h`
 
 ### Version 2.1 (2026-10-08)
 - PGA bypass (`.bypass`, `ads1263_set_bypass()`): inputs down to ground, e.g. single-ended against a grounded AINCOM (Waveshare High-Precision AD HAT); with the PGA on they read wrong
