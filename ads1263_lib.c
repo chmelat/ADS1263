@@ -1,7 +1,7 @@
 /**
  * @file ads1263_lib.c
  * @brief Library for ADS1263 32-bit ADC + 24-bit auxiliary ADC2 on Linux spidev
- * @version 2.0
+ * @version 2.1
  * @date 2026-10-08
  *
  * Datasheet: TI SBAS661C. Timing tables assume fCLK = 7.3728 MHz (internal oscillator).
@@ -544,6 +544,7 @@ int ads1263_open(ads1263_t *dev, const ads1263_config_t *cfg)
         cfg->spi_speed_hz == 0 || cfg->spi_speed_hz > MAX_SPI_SPEED_HZ ||
         !valid_reference(cfg->refmux, cfg->v_ref) ||
         !valid_filter(cfg->drate, cfg->filter) || pga_bits(cfg->gain, 5) < 0 ||
+        (cfg->bypass && cfg->gain != ADS1263_GAIN_1) ||                   /* Bypass is gain 1 */
         !valid_input(cfg->pos, cfg->neg) ||
         cfg->timeout_ms == 0 || cfg->timeout_ms > 3600000) {
         return ADS1263_ERROR_PARAMETER;
@@ -570,7 +571,7 @@ int ads1263_open(ads1263_t *dev, const ads1263_config_t *cfg)
         POWER_VALUE, INTERFACE_VALUE,
         cfg->chop ? 0x10 : 0x00,                                 /* MODE0: CHOP[1:0] = 01 */
         (uint8_t)(cfg->filter << 5),                             /* MODE1 */
-        (uint8_t)(pga_bits(cfg->gain, 5) << 4 | cfg->drate),         /* MODE2 */
+        (uint8_t)((cfg->bypass ? 0x80 : 0x00) | pga_bits(cfg->gain, 5) << 4 | cfg->drate),  /* MODE2 */
         (uint8_t)(cfg->pos << 4 | cfg->neg),                     /* INPMUX */
     };
     uint8_t id, readback[sizeof(block)];
@@ -613,7 +614,7 @@ int ads1263_set_input(ads1263_t *dev, uint8_t pos, uint8_t neg)
 int ads1263_set_gain(ads1263_t *dev, ads1263_gain_t gain)
 {
     int pga = pga_bits(gain, 5);
-    if (pga < 0) {
+    if (pga < 0 || (dev->cfg.bypass && gain != ADS1263_GAIN_1)) {
         return ADS1263_ERROR_PARAMETER;
     }
 
@@ -675,6 +676,20 @@ int ads1263_set_chop(ads1263_t *dev, bool on)
         return result;
     }
     dev->cfg.chop = on;
+    return self_calibrate(dev);
+}
+
+int ads1263_set_bypass(ads1263_t *dev, bool on)
+{
+    if (on && dev->cfg.gain != ADS1263_GAIN_1) {
+        return ADS1263_ERROR_PARAMETER;
+    }
+
+    int result = update_register_bits(dev, ADS1263_REG_MODE2, 0x80, on ? 0x80 : 0x00);
+    if (result != ADS1263_OK) {
+        return result;
+    }
+    dev->cfg.bypass = on;
     return self_calibrate(dev);
 }
 

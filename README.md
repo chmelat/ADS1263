@@ -7,6 +7,7 @@ C library for the TI ADS1263 32-bit ADC with its 24-bit auxiliary ADC2 over Linu
 - Any input combination: AIN0-AIN9 differential, single-ended against AINCOM, or any other pair
 - Internal temperature sensor and analog/digital supply monitors
 - Data rates 2.5 SPS to 38.4 kSPS, sinc1-sinc4 or FIR filter, PGA gain 1 to 32, input chop
+- PGA bypass for inputs down to ground (single-ended against a grounded AINCOM)
 - Internal 2.5 V reference or external reference on AIN0/1, AIN2/3, AIN4/5 or the analog supply
 - Two IDAC excitation current sources (50 uA to 3 mA) for RTDs
 - Optional DRDY pin on GPIO; without it the library polls the new-data bit of the status byte
@@ -109,6 +110,7 @@ int main(void)
         .gain = ADS1263_GAIN_1,
         .pos = ADS1263_AIN0, .neg = ADS1263_AIN1,
         .chop = false,
+        .bypass = false,                      /* true for inputs near ground, see below */
         .timeout_ms = 1000,
     };
     ads1263_t adc;
@@ -143,6 +145,8 @@ int32_t values[3];
 ads1263_scan(&adc, inputs, 3, values);
 double celsius = ads1263_to_celsius(&adc, values[2]);
 ```
+
+**Inputs near ground need the PGA bypassed.** With the PGA on, both inputs must stay between AVSS + 0.3 V and AVDD - 0.3 V (datasheet equation 12, narrower with gain): AIN3 against a grounded AINCOM (e.g. the Waveshare High-Precision AD HAT, AINCOM on GND) is outside, reads wrong and sets `ADS1263_STATUS_PGAL_ALM`. Set `.bypass = true` (or `ads1263_set_bypass()`): the range becomes AVSS - 0.1 V to AVDD + 0.1 V, only gain 1, input impedance 40 MΩ (input current about 150 nA instead of 2 nA) and no PGA alarms. Inputs biased mid-supply or a split supply (AVSS = -2.5 V) can keep the PGA and its gain. ADC2 bypasses its PGA by itself at gain 1-4.
 
 The scan selects each input and reads one fresh conversion. Writing the input multiplexer clears the previous result in the ADC, so the ADS1256 trick of selecting the next input while reading the previous one is not possible; for fast scanning use sinc1 or a low order filter. The last pair stays selected afterwards.
 
@@ -198,6 +202,7 @@ Until `ads1263_adc2_start()`, ADC2 is stopped with its reset settings (10 SPS, g
 | `ads1263_set_filter(dev, filter)` | Sinc1-sinc4 or FIR, self-calibrates |
 | `ads1263_set_reference(dev, refmux, v_ref)` | Reference `ADS1263_REF_*` and its voltage, self-calibrates |
 | `ads1263_set_chop(dev, on)` | Input chop; off self-calibrates (offset calibration is unused with chop) |
+| `ads1263_set_bypass(dev, on)` | PGA bypass for inputs near ground (gain 1 only), self-calibrates |
 | `ads1263_set_idac(dev, idac, pin, current)` | IDAC 1 or 2 to a pin with a current |
 | `ads1263_calibrate(dev, cmd)` | SFOCAL1 (self offset), SYOCAL1 (system offset) or SYGCAL1 (system gain) |
 | `ads1263_read(dev, &raw)` | One fresh conversion |
@@ -231,7 +236,7 @@ Then adjust what differs between the chips:
 
 | ADS1256 | ADS1263 |
 |---|---|
-| `.buffer` | Not needed (PGA input impedance 1 GΩ), remove it. New fields `.refmux`, `.filter`, `.chop` are fine at zero: internal reference, sinc1, chop off |
+| `.buffer`, `set_buffer()` | `.bypass`, `set_bypass()` with the opposite sense: ADS1256 buffer off and ADS1263 bypass on allow inputs down to ground; bypass needs gain 1. New fields `.refmux`, `.filter`, `.chop` are fine at zero: internal reference, sinc1, chop off |
 | `v_ref` 0.5-2.6 V, full scale ±2 · v_ref / gain | `v_ref` 0.9-5.25 V (2.5 for the internal reference), full scale ±v_ref / gain; `to_volts()` handles it |
 | Data rates 2.5-30000 SPS | 2.5-38400 SPS; only `ADS1263_DRATE_2_5`, `_5`, `_10`, `_50`, `_60`, `_100` exist in both, pick the nearest for others |
 | Gain 1-64 | ADC1 gain 1-32 (ADC2 up to 128) |
@@ -246,7 +251,7 @@ Not available: `set_buffer()`, `read_ts()` and the calibration files (`get/set/a
 
 ## Accuracy
 
-No external calibration is needed for most uses. With the internal reference, the uncalibrated error at 25 °C is typically 0.1 % (at most about 0.25 %): reference initial accuracy ±0.1 % typ, ±0.2 % max, plus ADC1 gain error ±50 ppm typ, ±300 ppm max (datasheet table 7.5). The offset is removed by the self-calibration the library runs at open and after each setting change (to about noise / 4), or by chop. The PGA input impedance is 1 GΩ, so input filter resistors on the module cost almost nothing (2 kΩ in series: about 4 µV).
+No external calibration is needed for most uses. With the internal reference, the uncalibrated error at 25 °C is typically 0.1 % (at most about 0.25 %): reference initial accuracy ±0.1 % typ, ±0.2 % max, plus ADC1 gain error ±50 ppm typ, ±300 ppm max (datasheet table 7.5). The offset is removed by the self-calibration the library runs at open and after each setting change (to about noise / 4), or by chop. With the PGA on, input current is about 2 nA, so input filter resistors on the module cost almost nothing (2 kΩ in series: about 4 µV); with the PGA bypassed it is about 150 nA (0.3 mV over 2 kΩ).
 
 To remove the dominant reference error, measure the REFOUT pin (pin 8, buffered internal reference against AVSS) once with a good meter and save the value; every program then gets it with `ads1263_load_vref()`:
 
@@ -276,9 +281,14 @@ Errors outside the chip (dividers, shunts, sensor offset) are not covered; calib
 - **Communication error at open**: the chip didn't answer with the ADS1263 ID (an ADS1262 is rejected too) or the registers didn't read back. Check wiring, power, DVDD level and SPI mode 1; try a lower `spi_speed_hz`.
 - **Checksum errors**: noise or ringing on SCLK/DOUT; shorter wires, series resistor at SCLK, lower `spi_speed_hz`.
 - **Timeouts**: check the START pin (low) and RESET/PWDN (high). With DRDY, check the chip and line number. `timeout_ms` is added to the first conversion time, so it doesn't need to grow with slow data rates.
+- **Wrong readings near 0 V or with `ADS1263_STATUS_PGAL_ALM` / `PGAH_ALM` in `dev->status`**: the inputs are outside the PGA range, bypass it (see [Single-ended inputs](#single-ended-inputs-internal-sensors-and-scanning)).
 - **Wrong readings**: check `v_ref` and `refmux` against your reference and the gain against the signal range. After power-on the internal reference needs time to settle (datasheet figure 7-33); call `ads1263_calibrate(&adc, ADS1263_CMD_SFOCAL1)` again once it has.
 
 ## Version History
+
+### Version 2.1 (2026-10-08)
+- PGA bypass (`.bypass`, `ads1263_set_bypass()`): inputs down to ground, e.g. single-ended against a grounded AINCOM (Waveshare High-Precision AD HAT); with the PGA on they read wrong
+- Example bypasses the PGA for its single-ended scan
 
 ### Version 2.0 (2026-10-08)
 - Renamed to ADS1263 (`ads1263_*`), ADS1262 no longer accepted

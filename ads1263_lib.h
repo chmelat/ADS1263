@@ -1,7 +1,7 @@
 /**
  * @file ads1263_lib.h
  * @brief Library for ADS1263 32-bit ADC + 24-bit auxiliary ADC2 on Linux spidev (Orange Pi, Raspberry Pi)
- * @version 2.0
+ * @version 2.1
  * @date 2026-10-08
  *
  * - Device handle (ads1263_t), any number of devices, no global state
@@ -170,6 +170,8 @@ typedef struct {
     ads1263_gain_t gain;       /**< PGA gain */
     uint8_t pos, neg;          /**< Inputs: ADS1263_AIN0..ADS1263_FLOAT */
     bool chop;                 /**< Input chop: lower offset and drift, half the data rate */
+    bool bypass;               /**< PGA bypassed: inputs AVSS - 0.1 .. AVDD + 0.1 V (e.g. single-ended
+                                    against a grounded AINCOM), gain 1 only, 40 MOhm; PGA alarms unused */
     uint32_t timeout_ms;       /**< Timeout on top of the expected conversion time, 1..3600000 (ADC2 too) */
 } ads1263_config_t;
 
@@ -207,7 +209,7 @@ void ads1263_close(ads1263_t *dev);
 /** Select inputs, e.g. AIN0/AIN1 differential, AIN3/AINCOM single-ended, TEMP/TEMP internal */
 int ads1263_set_input(ads1263_t *dev, uint8_t pos, uint8_t neg);
 
-/** Set PGA gain and self-calibrate */
+/** Set PGA gain and self-calibrate; with the PGA bypassed only gain 1 */
 int ads1263_set_gain(ads1263_t *dev, ads1263_gain_t gain);
 
 /** Set data rate and self-calibrate (FIR filter allows only 2.5, 5, 10 and 20 SPS) */
@@ -221,6 +223,13 @@ int ads1263_set_reference(ads1263_t *dev, uint8_t refmux, double v_ref);
 
 /** Input chop on/off; turning it off self-calibrates (offset calibration is unused with chop) */
 int ads1263_set_chop(ads1263_t *dev, bool on);
+
+/**
+ * PGA bypass on/off and self-calibrate. With the PGA on, both inputs must stay
+ * AVSS + 0.3 V .. AVDD - 0.3 V (datasheet equation 12), so a grounded input reads wrong;
+ * bypassed the range is AVSS - 0.1 .. AVDD + 0.1 V, gain 1 only (set it first).
+ */
+int ads1263_set_bypass(ads1263_t *dev, bool on);
 
 /** Connect IDAC 1 or 2 to pin (ADS1263_AIN0..ADS1263_AINCOM or ADS1263_IDAC_NC) with current */
 int ads1263_set_idac(ads1263_t *dev, int idac, uint8_t pin, ads1263_idac_t current);

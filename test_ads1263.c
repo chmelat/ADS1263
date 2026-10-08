@@ -495,6 +495,8 @@ int main(void)
           .drate = 16 },
         { .spi_device = "/dev/null", .spi_speed_hz = 1, .v_ref = 2.5, .gain = 1, .neg = 1, .timeout_ms = 1,
           .refmux = 0x2D },
+        { .spi_device = "/dev/null", .spi_speed_hz = 1, .v_ref = 2.5, .gain = 2, .neg = 1, .timeout_ms = 1,
+          .bypass = true },                            /* Bypass is gain 1 only */
     };
     for (size_t i = 0; i < sizeof(bads) / sizeof(bads[0]); i++) {
         assert(ads1263_open(&adc, &bads[i]) == ADS1263_ERROR_PARAMETER);
@@ -560,6 +562,19 @@ int main(void)
     assert(ads1263_set_gain(&adc, ADS1263_GAIN_1) == ADS1263_OK && calibrations == 7);
     assert(ads1263_set_chop(&adc, false) == ADS1263_OK);
     assert(regs[ADS1263_REG_MODE0] == 0x00 && calibrations == 8);
+
+    /* PGA bypass: gain 1 only, gain and rate setters keep the bypass bit */
+    assert(ads1263_set_bypass(&adc, true) == ADS1263_OK);
+    assert(regs[ADS1263_REG_MODE2] == 0x8E && adc.cfg.bypass && calibrations == 9);
+    assert(ads1263_set_gain(&adc, ADS1263_GAIN_2) == ADS1263_ERROR_PARAMETER);
+    assert(ads1263_set_gain(&adc, ADS1263_GAIN_1) == ADS1263_OK && regs[ADS1263_REG_MODE2] == 0x8E);
+    assert(ads1263_set_drate(&adc, ADS1263_DRATE_38400) == ADS1263_OK && regs[ADS1263_REG_MODE2] == 0x8F);
+    assert(ads1263_set_drate(&adc, ADS1263_DRATE_19200) == ADS1263_OK);
+    assert(ads1263_set_bypass(&adc, false) == ADS1263_OK);
+    assert(regs[ADS1263_REG_MODE2] == 0x0E && !adc.cfg.bypass);
+    assert(ads1263_set_gain(&adc, ADS1263_GAIN_2) == ADS1263_OK);
+    assert(ads1263_set_bypass(&adc, true) == ADS1263_ERROR_PARAMETER && regs[ADS1263_REG_MODE2] == 0x1E);
+    assert(ads1263_set_gain(&adc, ADS1263_GAIN_1) == ADS1263_OK);
     assert(regs[ADS1263_REG_INPMUX] == 0xCC);          /* Restored after each calibration */
 
     /* System calibration keeps the selected input */
@@ -621,8 +636,11 @@ int main(void)
     cfg.drate = ADS1263_DRATE_100;                       /* 10 ms period */
     cfg.timeout_ms = 1;                                /* Calibration must not use it alone */
     cfg.spi_speed_hz = spi_speed = 4000000;
+    cfg.gain = ADS1263_GAIN_1;
+    cfg.bypass = true;                                 /* Open writes the bypass bit */
     assert(ads1263_open(&adc, &cfg) == ADS1263_OK);
     assert(adc.drdy_fd == gpio_rd);
+    assert(regs[ADS1263_REG_MODE2] == 0x87);           /* Bypass, gain 1, 100 SPS */
     check_acquisition(&adc);
     check_adc2(&adc);                                  /* ADC2 never waits on the ADC1 pin */
 

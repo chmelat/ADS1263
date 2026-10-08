@@ -39,6 +39,7 @@ int main(int argc, char *argv[])
         .gain = ADS1263_GAIN_1,
         .pos = ADS1263_AIN0, .neg = ADS1263_AIN1,
         .chop = false,
+        .bypass = true,                    /* Single-ended scan against a grounded AINCOM needs it */
         .timeout_ms = 1000,
     };
     ads1263_t adc;
