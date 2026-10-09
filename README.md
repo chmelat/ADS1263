@@ -306,6 +306,10 @@ Errors outside the chip (dividers, shunts, sensor offset) are not covered; calib
 
 ## Version History
 
+### Version 2.3 (2026-10-09)
+- Fix: reading right after a conversion restart failed with a checksum error (the cleared holding register reads 00h, checksum too), so ADC2 and ADC1 without DRDY pin didn't work
+- Test emulator clears the holding register at restart like the chip
+
 ### Version 2.2 (2026-10-08)
 - Python binding `ads1263.py` (ctypes, no other packages) over the shared library from `make so`
 - `make test-py`: hardware-free check that the ctypes structures match `ads1263_lib.h`

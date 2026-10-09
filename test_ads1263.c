@@ -37,6 +37,7 @@ static int running;                                    /* Conversions started (S
 static uint32_t pending;                               /* Conversion in progress */
 static int pending_valid;
 static uint32_t data_reg;                              /* Holding register */
+static int cleared, cleared2;                          /* Restart zeroed the holding register, checksum too */
 static int new_flag;                                   /* ADC1 bit of the status byte */
 static int looks;                                      /* Polled reads since conversion start */
 static int calibrations;
@@ -84,6 +85,9 @@ static void restart(void)
     if (stale_flag) {                                  /* Unread result of the old input */
         data_reg = 0xDEADBEEF;
         new_flag = 1;
+    } else {                                           /* Seen on hardware */
+        data_reg = 0;
+        cleared = 1;
     }
 }
 
@@ -100,6 +104,8 @@ static void restart2(void)
         pending2 = (uint32_t)code2_for(regs[ADS1263_REG_ADC2MUX]) & 0xFFFFFF;
         pending2_valid = 1;
         looks2 = 0;
+        data2_reg = 0;
+        cleared2 = 1;
     }
 }
 
@@ -109,13 +115,14 @@ static void read_data2(uint8_t *out)
         pending2_valid = 0;
         data2_reg = pending2;
         new_flag2 = 1;
+        cleared2 = 0;
     }
     out[1] = new_flag2 ? ADS1263_STATUS_ADC2 : 0;
     for (int i = 0; i < 3; i++) {
         out[2 + i] = (uint8_t)(data2_reg >> (16 - 8 * i));
     }
     out[5] = 0;                                        /* Pad byte */
-    out[6] = (uint8_t)(out[2] + out[3] + out[4] + 0x9B + bad_checksum);
+    out[6] = cleared2 ? 0 : (uint8_t)(out[2] + out[3] + out[4] + 0x9B + bad_checksum);
     new_flag2 = 0;
     if (!pending2_valid) {                             /* Continuous conversions */
         restart2();
@@ -131,6 +138,7 @@ static void finish_conversion(void)
     commits_left -= commits_left > 0;
     data_reg = pending;
     new_flag = 1;
+    cleared = 0;
     drdy_level = 0;
     if (gpio_wr < 0) {
         return;
@@ -160,7 +168,7 @@ static void read_data(uint8_t *out)
     for (int i = 0; i < 4; i++) {
         out[2 + i] = (uint8_t)(data_reg >> (24 - 8 * i));
     }
-    out[6] = (uint8_t)(out[2] + out[3] + out[4] + out[5] + 0x9B + bad_checksum);
+    out[6] = cleared ? 0 : (uint8_t)(out[2] + out[3] + out[4] + out[5] + 0x9B + bad_checksum);
     new_flag = 0;
     drdy_level = 1;                                    /* DRDY goes high on the read */
     if (running && !pending_valid) {                   /* Continuous conversion mode */

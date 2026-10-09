@@ -1,8 +1,8 @@
 /**
  * @file ads1263_lib.c
  * @brief Library for ADS1263 32-bit ADC + 24-bit auxiliary ADC2 on Linux spidev
- * @version 2.2
- * @date 2026-10-08
+ * @version 2.3
+ * @date 2026-10-09
  *
  * Datasheet: TI SBAS661C. Timing tables assume fCLK = 7.3728 MHz (internal oscillator).
  * Uses only Linux spidev and GPIO character device (uAPI v2, kernel >= 5.10).
@@ -210,9 +210,12 @@ static int read_data(ads1263_t *dev, int adc, int32_t *raw, bool *fresh)
     if (result != ADS1263_OK) {
         return result;
     }
+    bool new_data = d[1] & (adc == 1 ? ADS1263_STATUS_ADC1 : ADS1263_STATUS_ADC2);
+    /* Restart clears the holding register (datasheet 9.4.7.1); on the chip the checksum reads 00h too */
+    bool cleared = !new_data && !(d[2] | d[3] | d[4] | d[5] | d[6]);
     /* ADC2 sums 3 data bytes; its pad byte is 00h, so a corrupted pad fails the check too */
-    if ((uint8_t)(d[2] + d[3] + d[4] + d[5] + CHECKSUM_OFFSET) != d[6]) {
-        return ADS1263_ERROR_CHECKSUM;  /* Also MISO stuck at 0 or 1 */
+    if (!cleared && (uint8_t)(d[2] + d[3] + d[4] + d[5] + CHECKSUM_OFFSET) != d[6]) {
+        return ADS1263_ERROR_CHECKSUM;  /* Also MISO stuck at 1 (stuck at 0 looks cleared: timeout) */
     }
     uint32_t code = (uint32_t)d[2] << 24 | (uint32_t)d[3] << 16 | (uint32_t)d[4] << 8 | d[5];
     if (adc == 1) {
@@ -223,7 +226,7 @@ static int read_data(ads1263_t *dev, int adc, int32_t *raw, bool *fresh)
         *raw = (int32_t)(code & 0xFFFFFF00u) / 256;  /* Exact: low byte is zero */
     }
     if (fresh) {
-        *fresh = d[1] & (adc == 1 ? ADS1263_STATUS_ADC1 : ADS1263_STATUS_ADC2);
+        *fresh = new_data;
     }
     return ADS1263_OK;
 }
