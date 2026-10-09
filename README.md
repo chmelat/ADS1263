@@ -72,7 +72,23 @@ The library uses only kernel services, so timing works the same on all boards: `
 - Enable SPI with a device tree overlay (`orangepi-config` or the `overlays=` line in `/boot/orangepiEnv.txt`).
 - **DRDY pin**: Rockchip pin `GPIOx_yz` is `/dev/gpiochipx`, line `y * 8 + z` with A=0, B=1, C=2, D=3 (e.g. GPIO1_C6 is `/dev/gpiochip1`, line 22). Check with `sudo gpioinfo`.
 - `/dev/gpiochip*` is root-only by default, see the udev rule above.
-- **Streaming limits**: not measured with the ADS1263 yet, but the delays come from the kernel, so the [ADS1256 measurements](../ADS1256/README.md#orange-pi-5) on the same board (kernel 6.1, `PREEMPT_VOLUNTARY`) apply: now and then the process is delayed by 10 to 13 ms (a 7 ms sleep ended after 20 ms), waking up from `poll()` occasionally takes over 1 ms, one spidev transfer takes about 60 us. With DRDY, 30 SPS and less ran clean for 2 minutes; at 60-100 SPS an overrun came every 10 s to 1 minute, at 500-1000 SPS on average every 100 samples. Without DRDY 14-21 % of conversions were lost unnoticed at 500-1000 SPS. Pinning to a big core (`taskset`) didn't help; real-time priority (`chrt -f 50`) with busy-waiting ran 1000-2000 SPS clean, above that the kernel itself delays by 100-300 us. `read()` and `scan()` restart the conversion and are not affected; a delay only makes them slower.
+- **Measured streaming limits** (Orange Pi OS, kernel 6.1 with `PREEMPT_VOLUNTARY`, `/dev/spidev4.1` at SCLK 4 MHz, DRDY on GPIO1_A3, sinc1 filter, normal priority). `read_stream()` for 2 minutes per rate (2400 SPS and up: 30 s). With DRDY the stream was restarted after each overrun. Without DRDY lost conversions were counted from the stream duration (after the restart, n samples take the first-conversion latency plus n - 1 periods, each lost one adds a period), with the period measured from DRDY edges while the bus was idle (internal oscillator +0.06 %). DRDY edges can't be counted during the stream itself: the first SCLK edge drives DRDY high (datasheet 9.4.5), so a conversion that finishes during a polling read gives a pulse too short for the GPIO.
+
+  | SPS | With DRDY: overruns (reported) | Without DRDY: lost conversions (not reported) |
+  |---|---|---|
+  | 7200 | 6436 in 30 s, longest clean run 856 samples | 21 % (5670 SPS delivered) |
+  | 4800 | 4720 in 30 s, longest clean run 860 samples | 33 % (3210 SPS delivered) |
+  | 2400 | 664 in 30 s, longest clean run 1685 samples | 14 % (2070 SPS delivered) |
+  | 1200 | 280 in 2 min, longest clean run 3804 samples | 2.2 % (1175 SPS delivered) |
+  | 400 | 58 in 2 min, longest clean run 7249 samples | 221 of 48221 |
+  | 100 | 16 in 2 min | 26 of 12026 |
+  | 60 | 0 | 0 of 7200 |
+  | 50 | 0 | 1 of 6001 |
+  | 20 | 0 | 0 of 2400 |
+
+  - The limit is the kernel, not the ADC: the results match the [ADS1256 on the same board](../ADS1256/README.md#orange-pi-5), where the process was delayed by 10 to 13 ms now and then (a 7 ms sleep ended after 20 ms) and waking up from `poll()` occasionally took over 1 ms. Above 2400 SPS the spidev overhead adds to it (one transfer takes tens of us).
+  - Not repeated with the ADS1263: with the ADS1256, pinning to a big core (`taskset`) didn't help; real-time priority (`chrt -f 50`) with busy-waiting ran 1000-2000 SPS clean, above that the kernel itself delays by 100-300 us.
+  - `read()` and `scan()` restart the conversion and are not affected; a delay only makes them slower.
 
 ## Requirements
 
@@ -309,6 +325,7 @@ Errors outside the chip (dividers, shunts, sensor offset) are not covered; calib
 ### Version 2.3 (2026-10-09)
 - Fix: reading right after a conversion restart failed with a checksum error (the cleared holding register reads 00h, checksum too), so ADC2 and ADC1 without DRDY pin didn't work
 - Test emulator clears the holding register at restart like the chip
+- README: streaming limits measured with the ADS1263 (were taken over from the ADS1256)
 
 ### Version 2.2 (2026-10-08)
 - Python binding `ads1263.py` (ctypes, no other packages) over the shared library from `make so`
