@@ -1,7 +1,7 @@
 /**
  * @file ads1263_lib.h
  * @brief Library for ADS1263 32-bit ADC + 24-bit auxiliary ADC2 on Linux spidev (Orange Pi, Raspberry Pi)
- * @version 2.3
+ * @version 2.4
  * @date 2026-10-09
  *
  * - Device handle (ads1263_t), any number of devices, no global state
@@ -102,7 +102,8 @@
 #define ADS1263_CMD_RREG         0x20   /**< Read registers */
 #define ADS1263_CMD_WREG         0x40   /**< Write registers */
 
-/* Inputs for ads1263_set_input() and ads1263_adc2_set_input(); internal ones are selected as pos == neg, e.g. TEMP/TEMP */
+/* Inputs for ads1263_set_input() and ads1263_adc2_set_input(); internal ones are selected as pos == neg, e.g. TEMP/TEMP.
+ * On ADC1, TEMP and the supply monitors need the PGA on (not bypassed), gain 1 and chop off */
 enum {
     ADS1263_AIN0 = 0, ADS1263_AIN1, ADS1263_AIN2, ADS1263_AIN3, ADS1263_AIN4,
     ADS1263_AIN5, ADS1263_AIN6, ADS1263_AIN7, ADS1263_AIN8, ADS1263_AIN9,

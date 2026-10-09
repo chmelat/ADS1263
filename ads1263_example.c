@@ -95,13 +95,15 @@ int main(int argc, char *argv[])
         printf("AIN%d-COM: %.9f V\n", i, ads1263_to_volts(&adc, values[i]));
     }
 
-    /* Internal temperature sensor and supply monitors (gain 1, no chop) */
+    /* Internal temperature sensor and supply monitors: PGA on, gain 1, no chop (datasheet 9.3.4) */
     uint8_t internal[3][2] = {
         { ADS1263_TEMP, ADS1263_TEMP },
         { ADS1263_AVDD_MON, ADS1263_AVDD_MON },
         { ADS1263_DVDD_MON, ADS1263_DVDD_MON },
     };
-    if ((result = ads1263_scan(&adc, internal, 3, values)) != ADS1263_OK) {
+    if ((result = ads1263_set_bypass(&adc, false)) != ADS1263_OK ||
+        (result = ads1263_scan(&adc, internal, 3, values)) != ADS1263_OK ||
+        (result = ads1263_set_bypass(&adc, true)) != ADS1263_OK) {
         goto error;
     }
     printf("\nChip temperature: %.2f C\n", ads1263_to_celsius(&adc, values[0]));

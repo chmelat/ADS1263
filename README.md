@@ -102,8 +102,11 @@ make lib            # Static library libads1263.a
 make test           # Hardware-free test with an emulated ADS1263
 make so             # Shared library libads1263.so for Python (ads1263.py)
 make test-py        # Hardware-free check of the Python binding
+make hwtest         # Self-check on the connected ADS1263, see below
 make install        # libads1263.a to ~/lib, ads1263_lib.h to ~/include
 ```
+
+`make hwtest` needs the chip with DRDY wired (another line: `make hwtest HWDRDY="/dev/gpiochip1 22"`; SPI is `/dev/spidev4.1`, change it in `hwtest_ads1263.c` and the Makefile); inputs may float. In about 15 seconds it checks what the emulator can't: a restart clears the holding register with its checksum (the reads without DRDY rely on it), reads with and without DRDY on ADC1 and ADC2, plausible supply monitors and temperature that don't depend on the channel read before and agree between ADC1 and ADC2, all PGA gains (ADC1 1-32, ADC2 1-128) on the internal test DAC, saturation at overrange, and the Python binding on the chip. `make hwtest V=1.5723` adds a known voltage between AIN0 (+) and AIN1 (-, grounded), measured with a meter: both polarities, all filters, 1200 and 7200 SPS, stream, chop and ADC2 must agree with it (0.3 %) and with each other.
 
 Link your program with `-lads1263`, or just compile `ads1263_lib.c` with it.
 
@@ -156,19 +159,23 @@ ads1263_set_input(&adc, ADS1263_AIN3, ADS1263_AINCOM);   /* AIN3 against AINCOM 
 
 uint8_t inputs[3][2] = {
     { ADS1263_AIN0, ADS1263_AINCOM },
+    { ADS1263_AIN1, ADS1263_AINCOM },
     { ADS1263_AIN8, ADS1263_AIN9 },
-    { ADS1263_TEMP, ADS1263_TEMP },                      /* Internal: same on both sides */
 };
-int32_t values[3];
+int32_t values[3], raw;
 ads1263_scan(&adc, inputs, 3, values);
-double celsius = ads1263_to_celsius(&adc, values[2]);
+
+ads1263_set_bypass(&adc, false);                         /* Internal sensors need the PGA */
+ads1263_set_input(&adc, ADS1263_TEMP, ADS1263_TEMP);     /* Internal: same on both sides */
+ads1263_read(&adc, &raw);
+double celsius = ads1263_to_celsius(&adc, raw);
 ```
 
 **Inputs near ground need the PGA bypassed.** With the PGA on, both inputs must stay between AVSS + 0.3 V and AVDD - 0.3 V (datasheet equation 12, narrower with gain): AIN3 against a grounded AINCOM (e.g. the Waveshare High-Precision AD HAT, AINCOM on GND) is outside, reads wrong and sets `ADS1263_STATUS_PGAL_ALM`. Set `.bypass = true` (or `ads1263_set_bypass()`): the range becomes AVSS - 0.1 V to AVDD + 0.1 V, only gain 1, input impedance 40 MΩ (input current about 150 nA instead of 2 nA) and no PGA alarms. Inputs biased mid-supply or a split supply (AVSS = -2.5 V) can keep the PGA and its gain. ADC2 bypasses its PGA by itself at gain 1-4.
 
 The scan selects each input and reads one fresh conversion. Writing the input multiplexer clears the previous result in the ADC, so the ADS1256 trick of selecting the next input while reading the previous one is not possible; for fast scanning use sinc1 or a low order filter. The last pair stays selected afterwards.
 
-The temperature sensor and supply monitors need gain 1 and chop off. `ADS1263_AVDD_MON` reads (AVDD - AVSS) / 4 and `ADS1263_DVDD_MON` reads DVDD / 4.
+The temperature sensor and supply monitors need the PGA on (not bypassed), gain 1 and chop off (datasheet 9.3.4, 9.3.5). With the PGA bypassed they read wrong: on the Orange Pi 5 the temperature 2.5 °C low, AVDD and DVDD 7-15 mV off, and right after another channel far off at higher data rates (409 °C at 1200 SPS after `AVDD_MON`). So switch the bypass off for them (`ads1263_set_bypass(&adc, false)`, it self-calibrates) or read them with ADC2, which has its own multiplexer. The sensors are shared though: while ADC1 bypassed selects the same one, it loads it and ADC2 reads wrong as well (temperature 2.3 °C low). `ADS1263_AVDD_MON` reads (AVDD - AVSS) / 4 and `ADS1263_DVDD_MON` reads DVDD / 4.
 
 ### RTD with IDAC
 
@@ -219,8 +226,8 @@ with A.ADS1263("/dev/spidev4.1", drdy_chip="/dev/gpiochip1", drdy_line=3,
                pos=A.AIN0, neg=A.AINCOM, bypass=True) as adc:
     print(adc.to_volts(adc.read()), "V")
     raw = adc.read_stream(100)                       # List of 100 codes
-    print(adc.scan([(A.AIN1, A.AINCOM), (A.TEMP, A.TEMP)]))
-    adc.adc2_start(pos=A.TEMP, neg=A.TEMP)
+    print(adc.scan([(A.AIN1, A.AINCOM), (A.AIN2, A.AINCOM)]))
+    adc.adc2_start(pos=A.TEMP, neg=A.TEMP)              # ADC2: ADC1 bypassed but not on TEMP
     print(adc.adc2_to_celsius(adc.adc2_read()), "C")
 ```
 
@@ -289,6 +296,8 @@ Not available: `set_buffer()`, `read_ts()` and the calibration files (`get/set/a
 
 No external calibration is needed for most uses. With the internal reference, the uncalibrated error at 25 °C is typically 0.1 % (at most about 0.25 %): reference initial accuracy ±0.1 % typ, ±0.2 % max, plus ADC1 gain error ±50 ppm typ, ±300 ppm max (datasheet table 7.5). The offset is removed by the self-calibration the library runs at open and after each setting change (to about noise / 4), or by chop. With the PGA on, input current is about 2 nA, so input filter resistors on the module cost almost nothing (2 kΩ in series: about 4 µV); with the PGA bypassed it is about 150 nA (0.3 mV over 2 kΩ).
 
+Measured on one chip (Orange Pi 5, internal reference, PGA bypassed, AIN1 grounded): a source of 1.5723 V by a meter (ANENG AN870, about ±1 mV) read 1.57248 V on ADC1 (+0.011 %) and 1.57196 V on ADC2. Swapping the inputs changed the magnitude by 62 µV (the bypassed input current through the source resistance; with chop, which swaps the inputs internally, 7 µV), all filters, data rates and chop agreed within 0.1 mV. Noise (standard deviation of single readings): 1.3 µV at 100 SPS sinc3 and FIR 20 SPS, 7 µV at 1200 SPS, 11.5 µV at 7200 SPS; with the source floating (no side grounded) about 30 µV. On the test DAC, PGA gains 2-32 read within 0.01 % of gain 1, ADC2 gains 2-128 within 0.08 %. `make hwtest V=<volts>` repeats this with your source.
+
 To remove the dominant reference error, measure the REFOUT pin (pin 8, buffered internal reference against AVSS) once with a good meter and save the value; every program then gets it with `ads1263_load_vref()`:
 
 ```bash
@@ -321,6 +330,11 @@ Errors outside the chip (dividers, shunts, sensor offset) are not covered; calib
 - **Wrong readings**: check `v_ref` and `refmux` against your reference and the gain against the signal range. After power-on the internal reference needs time to settle (datasheet figure 7-33); call `ads1263_calibrate(&adc, ADS1263_CMD_SFOCAL1)` again once it has.
 
 ## Version History
+
+### Version 2.4 (2026-10-09)
+- Fix: the temperature sensor and supply monitors need the PGA on (datasheet 9.3.4, 9.3.5), the example and README read them with the PGA bypassed (temperature 2.5 °C low, far off right after another channel); the example switches the bypass off for them
+- `make hwtest`: self-check on the connected chip, optionally with a known voltage (`V=`); `test_ads1263.py` also reads the chip when given spidev and DRDY
+- README: accuracy measured with a known voltage, PGA gains measured on the test DAC
 
 ### Version 2.3 (2026-10-09)
 - Fix: reading right after a conversion restart failed with a checksum error (the cleared holding register reads 00h, checksum too), so ADC2 and ADC1 without DRDY pin didn't work

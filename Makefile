@@ -3,7 +3,7 @@
 #
 
 PROGRAM = ads1263
-VERS = 2.3
+VERS = 2.4
 
 # Zdrojové soubory pro program
 SRC = ads1263_example.c ads1263_lib.c
@@ -40,6 +40,7 @@ CFLAGS = -Wall -Wextra $(OPT) #-pedantic
 .PHONY: test
 .PHONY: so
 .PHONY: test-py
+.PHONY: hwtest
 
 # list of valid suffixes through the use of the .SUFFIXES special target.
 #.SUFFIXES: .c .o
@@ -70,10 +71,10 @@ uninstall:
 	rm -f $(HOME)/include/$(HEAD)
 
 clean:
-	rm -f *.o $(PROGRAM) $(STATIC_LIB) $(SHARED_LIB) test_ads1263
+	rm -f *.o $(PROGRAM) $(STATIC_LIB) $(SHARED_LIB) test_ads1263 hwtest_ads1263
 
 dist:
-	tar czf $(PROGRAM)-$(VERS).tgz $(SRC) $(HEAD) test_ads1263.c ads1263.py test_ads1263.py Makefile README.md LICENSE
+	tar czf $(PROGRAM)-$(VERS).tgz $(SRC) $(HEAD) test_ads1263.c hwtest_ads1263.c ads1263.py test_ads1263.py Makefile README.md LICENSE
 
 # Hardware-free test (emulated ADS1263)
 test: test_ads1263.c $(LIB_SRC) $(HEAD)
@@ -83,6 +84,13 @@ test: test_ads1263.c $(LIB_SRC) $(HEAD)
 # Hardware-free check of the Python binding
 test-py: $(SHARED_LIB)
 	python3 test_ads1263.py
+
+# Self-check on the connected ADS1263 (C and Python); V=volts adds the known-voltage test
+HWDRDY = /dev/gpiochip1 3
+hwtest: hwtest_ads1263.c $(LIB_SRC) $(HEAD) $(SHARED_LIB)
+	$(CC) $(CFLAGS) hwtest_ads1263.c -lm -o hwtest_ads1263
+	./hwtest_ads1263 $(if $(V),-v $(V)) $(HWDRDY)
+	python3 test_ads1263.py /dev/spidev4.1 $(HWDRDY)
 
 $(PROGRAM): $(OBJ) Makefile
 	$(CC) $(OBJ) -o $(PROGRAM)

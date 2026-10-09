@@ -1,10 +1,12 @@
 """
 Hardware-free self-check of the Python binding: the ctypes structures must match
 ads1263_lib.h, otherwise values land in wrong fields silently.
-Build & run: make test-py
+With arguments (spidev gpiochip drdy_line) it also reads the connected chip.
+Build & run: make test-py (make hwtest runs it with the chip)
 """
 
 import os
+import sys
 import tempfile
 import ads1263 as A
 
@@ -76,5 +78,18 @@ with tempfile.TemporaryDirectory() as d:
         assert False
     except FileNotFoundError:
         pass
+
+if len(sys.argv) == 4:
+    with A.ADS1263(sys.argv[1], drdy_chip=sys.argv[2], drdy_line=int(sys.argv[3])) as adc:
+        avdd = 4 * adc.to_volts(adc.scan([(A.AVDD_MON, A.AVDD_MON)])[0])
+        assert 4.75 < avdd < 5.25, avdd
+        adc.set_input(A.TEMP, A.TEMP)
+        t1 = adc.to_celsius(adc.read())
+        assert len(adc.read_stream(10)) == 10
+        adc.adc2_start(drate=A.ADC2_DRATE_100, pos=A.TEMP, neg=A.TEMP)
+        t2 = adc.adc2_to_celsius(adc.adc2_read())
+        assert 0 < t1 < 70 and abs(t2 - t1) < 2, (t1, t2)
+        assert adc.dev.status & A.STATUS_ADC1          # Status byte of the last read (fresh data) reaches Python
+        print(f"Chip: AVDD {avdd:.4f} V, temperature {t1:.2f} C (ADC2 {t2:.2f} C)")
 
 print("Python binding OK")
