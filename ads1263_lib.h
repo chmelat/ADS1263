@@ -1,8 +1,8 @@
 /**
  * @file ads1263_lib.h
  * @brief Library for ADS1263 32-bit ADC + 24-bit auxiliary ADC2 on Linux spidev (Orange Pi, Raspberry Pi)
- * @version 2.4
- * @date 2026-10-09
+ * @version 2.5
+ * @date 2026-10-13
  *
  * - Device handle (ads1263_t), any number of devices, no global state
  * - Optional DRDY pin on GPIO (kernel GPIO uAPI); without it the ADC1 bit of the
@@ -40,7 +40,7 @@
 /* Return codes */
 #define ADS1263_OK                   0  /**< Operation successful */
 #define ADS1263_ERROR_PARAMETER     -1  /**< Invalid parameter */
-#define ADS1263_ERROR_COMMUNICATION -2  /**< SPI or GPIO error, or no ADS1263 found */
+#define ADS1263_ERROR_COMMUNICATION -2  /**< SPI or GPIO error, no ADS1263 found, or MISO stuck low (DRDY pin) */
 #define ADS1263_ERROR_TIMEOUT       -3  /**< No new data in time */
 #define ADS1263_ERROR_OVERRUN       -4  /**< read_stream() couldn't keep up, conversions skipped */
 #define ADS1263_ERROR_CHECKSUM      -5  /**< Conversion data corrupted on the bus */

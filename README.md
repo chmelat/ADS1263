@@ -325,11 +325,14 @@ Errors outside the chip (dividers, shunts, sensor offset) are not covered; calib
 - **Permission denied on /dev/gpiochipN**: see the udev rule above.
 - **Communication error at open**: the chip didn't answer with the ADS1263 ID (an ADS1262 is rejected too) or the registers didn't read back. Check wiring, power, DVDD level and SPI mode 1; try a lower `spi_speed_hz`.
 - **Checksum errors**: noise or ringing on SCLK/DOUT; shorter wires, series resistor at SCLK, lower `spi_speed_hz`.
-- **Timeouts**: check the START pin (low) and RESET/PWDN (high). With DRDY, check the chip and line number. `timeout_ms` is added to the first conversion time, so it doesn't need to grow with slow data rates.
+- **Timeouts**: check the START pin (low) and RESET/PWDN (high). Without DRDY, MISO stuck low (DOUT disconnected) also ends in a timeout; with DRDY it is a communication error. With DRDY, check the chip and line number. `timeout_ms` is added to the first conversion time, so it doesn't need to grow with slow data rates.
 - **Wrong readings near 0 V or with `ADS1263_STATUS_PGAL_ALM` / `PGAH_ALM` in `dev->status`**: the inputs are outside the PGA range, bypass it (see [Single-ended inputs](#single-ended-inputs-internal-sensors-and-scanning)).
 - **Wrong readings**: check `v_ref` and `refmux` against your reference and the gain against the signal range. After power-on the internal reference needs time to settle (datasheet figure 7-33); call `ads1263_calibrate(&adc, ADS1263_CMD_SFOCAL1)` again once it has.
 
 ## Version History
+
+### Version 2.5 (2026-10-13)
+- Fix: with DRDY pin, MISO stuck low (DOUT disconnected) gave zeros as valid data from `read()` and `scan()` and an overrun from `read_stream()`; now a communication error, and raw value and status stay from the last good read
 
 ### Version 2.4 (2026-10-09)
 - Fix: the temperature sensor and supply monitors need the PGA on (datasheet 9.3.4, 9.3.5), the example and README read them with the PGA bypassed (temperature 2.5 °C low, far off right after another channel); the example switches the bypass off for them

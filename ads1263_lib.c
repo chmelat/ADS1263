@@ -1,8 +1,8 @@
 /**
  * @file ads1263_lib.c
  * @brief Library for ADS1263 32-bit ADC + 24-bit auxiliary ADC2 on Linux spidev
- * @version 2.4
- * @date 2026-10-09
+ * @version 2.5
+ * @date 2026-10-13
  *
  * Datasheet: TI SBAS661C. Timing tables assume fCLK = 7.3728 MHz (internal oscillator).
  * Uses only Linux spidev and GPIO character device (uAPI v2, kernel >= 5.10).
@@ -200,9 +200,10 @@ static int update_register_bits(ads1263_t *dev, uint8_t reg, uint8_t mask, uint8
  * RDATA1: status byte, 32-bit code MSB first, checksum. RDATA2: status byte, 24-bit
  * code, 00h pad byte, checksum. Data come from the holding register, so the read needs
  * no synchronization to DRDY. fresh (optional) tells whether the data are new since
- * the last read of that ADC.
+ * the last read of that ADC. ready: a conversion finished since the restart (DRDY pin),
+ * so a cleared frame means MISO stuck low.
  */
-static int read_data(ads1263_t *dev, int adc, int32_t *raw, bool *fresh)
+static int read_data(ads1263_t *dev, int adc, int32_t *raw, bool *fresh, bool ready)
 {
     const uint8_t tx[7] = { adc == 1 ? ADS1263_CMD_RDATA1 : ADS1263_CMD_RDATA2 };
     uint8_t d[7];
@@ -215,7 +216,10 @@ static int read_data(ads1263_t *dev, int adc, int32_t *raw, bool *fresh)
     bool cleared = !new_data && !(d[2] | d[3] | d[4] | d[5] | d[6]);
     /* ADC2 sums 3 data bytes; its pad byte is 00h, so a corrupted pad fails the check too */
     if (!cleared && (uint8_t)(d[2] + d[3] + d[4] + d[5] + CHECKSUM_OFFSET) != d[6]) {
-        return ADS1263_ERROR_CHECKSUM;  /* Also MISO stuck at 1 (stuck at 0 looks cleared: timeout) */
+        return ADS1263_ERROR_CHECKSUM;  /* Also MISO stuck at 1 */
+    }
+    if (cleared && ready) {
+        return ADS1263_ERROR_COMMUNICATION;  /* Stuck at 0; polled it looks cleared until timeout */
     }
     uint32_t code = (uint32_t)d[2] << 24 | (uint32_t)d[3] << 16 | (uint32_t)d[4] << 8 | d[5];
     if (adc == 1) {
@@ -254,7 +258,7 @@ static int start_conversion(ads1263_t *dev, int adc)
         uses_pin(dev, adc)) {
         return result;
     }
-    return read_data(dev, adc, &raw, NULL);
+    return read_data(dev, adc, &raw, NULL, false);
 }
 
 
@@ -399,7 +403,7 @@ static int wait_and_read(ads1263_t *dev, int adc, uint32_t due_us, int32_t *raw)
     int result;
     if (uses_pin(dev, adc)) {
         result = wait_drdy_pin(dev, data_timeout_ms(dev, adc));
-        return result != ADS1263_OK ? result : read_data(dev, adc, raw, NULL);
+        return result != ADS1263_OK ? result : read_data(dev, adc, raw, NULL, true);
     }
 
     uint64_t deadline = now_ns() + (uint64_t)data_timeout_ms(dev, adc) * 1000000u;
@@ -410,7 +414,7 @@ static int wait_and_read(ads1263_t *dev, int adc, uint32_t due_us, int32_t *raw)
 
     for (;;) {
         bool fresh;
-        if ((result = read_data(dev, adc, raw, &fresh)) != ADS1263_OK || fresh) {
+        if ((result = read_data(dev, adc, raw, &fresh, false)) != ADS1263_OK || fresh) {
             return result;
         }
         if (now_ns() > deadline) {
@@ -751,7 +755,7 @@ static int read_stream_pin(ads1263_t *dev, int32_t *raw, size_t n, size_t *done,
 
     do {
         if ((result = wait_edges(dev, edge, &edges, &edge)) != ADS1263_OK ||
-            (result = edges > 1 ? ADS1263_ERROR_OVERRUN : read_data(dev, 1, &raw[*done], &fresh)) != ADS1263_OK) {
+            (result = edges > 1 ? ADS1263_ERROR_OVERRUN : read_data(dev, 1, &raw[*done], &fresh, true)) != ADS1263_OK) {
             break;
         }
         if (!fresh) {

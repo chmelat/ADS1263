@@ -674,6 +674,17 @@ int main(void)
     assert(ads1263_read_stream(&adc, stream, 5, &count) == ADS1263_ERROR_OVERRUN && count == 0);
     late_read = 0;
 
+    /* MISO stuck low after open: all-zero frame looks cleared, but after DRDY there must be data;
+     * the bad frame leaves raw and status alone, and the stream doesn't report it as an overrun */
+    assert(ads1263_read(&adc, &raw) == ADS1263_OK && raw != 0 && adc.status != 0);
+    int32_t last = raw;
+    uint8_t last_status = adc.status;
+    miso_low = 1;
+    assert(ads1263_read(&adc, &raw) == ADS1263_ERROR_COMMUNICATION);
+    assert(raw == last && adc.status == last_status);
+    assert(ads1263_read_stream(&adc, stream, 5, &count) == ADS1263_ERROR_COMMUNICATION && count == 0);
+    miso_low = 0;
+
     /* DRDY stalls: timeout */
     commits_left = 0;
     assert(ads1263_read(&adc, &raw) == ADS1263_ERROR_TIMEOUT);
